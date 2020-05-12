@@ -1,6 +1,8 @@
 import praw
 import configparser
 import urllib.request
+import re
+from time import sleep
 
 from prawcore.exceptions import Redirect
 from prawcore.exceptions import ResponseException
@@ -35,8 +37,16 @@ def delete_img_list():
 
 
 def is_img_link(img_link):
+    regex = '([.][\w]+)$'
+    re.compile(regex)
+    print(img_link)
+    t = re.search(regex, img_link)
     ext = img_link[-4:]
-    if ext == '.jpg' or ext == '.png':
+    if t:
+        ext = t.group()
+        print(ext)
+
+    if ext in ('.webm', '.gif', '.avi', '.mp4', '.gifv', '.jpg', '.png', '.mov'):
         return True
     else:
         return False
@@ -45,8 +55,7 @@ def is_img_link(img_link):
 def get_img_urls(sub, li):
     try:
         r = praw.Reddit(client_id=ClientInfo.id, client_secret=ClientInfo.secret, user_agent=ClientInfo.user_agent)
-        submissions = r.subreddit(sub).hot(limit=li)
-
+        submissions = r.subreddit(sub).top(time_filter='all', limit=li)
         return [submission.url for submission in submissions]
 
     except Redirect:
@@ -55,6 +64,7 @@ def get_img_urls(sub, li):
 
     except HTTPError:
         print("Too many Requests. Try again later!")
+        sleep(10)
         return 0
 
     except ResponseException:
@@ -63,17 +73,25 @@ def get_img_urls(sub, li):
 
 
 def download_img(img_url, img_title, filename):
+    print(img_url + ' ' + img_title + ' ' + filename)
     opener = urllib.request.build_opener()
     opener.addheaders = [('User-agent', 'Mozilla/5.0')]
     urllib.request.install_opener(opener)
     try:
         print('Downloading ' + img_title + '....')
         urllib.request.urlretrieve(img_url, filename)
+        sleep(2)  # this is necessary so you can download the whole sub
         return 1
 
     except HTTPError:
         print("Too many Requests. Try again later!")
-        return 0
+        sleep(10)
+        return -1
+
+    except urllib.error.URLError:
+        print("URLError!")
+        sleep(2)
+        return 1
 
 
 def read_img_links():
@@ -91,6 +109,7 @@ def read_img_links():
         file_loc = 'result/{}'.format(file_name)
 
         if not file_name:
+            print(file_name + ' cannot download')
             continue
 
         download_status = download_img(link, file_name, file_loc)
@@ -103,13 +122,14 @@ def read_img_links():
 
 
 if __name__ == '__main__':
+    delete_img_list()
 
     ClientInfo.id, ClientInfo.secret = get_client_info()
 
     subreddit = input('Enter Subreddit: ')
-    num = int(input('Enter Limit: '))
+    query_lookup_limit = int(input('Enter the max amount of queries: '))
     print()
-    url_list = get_img_urls(subreddit, num)
+    url_list = get_img_urls(subreddit, query_lookup_limit)
     file_no = 1
 
     if url_list:
@@ -118,8 +138,8 @@ if __name__ == '__main__':
         count, status = read_img_links()
 
         if status == 1:
-            print('\nDownload Complete\n{} - Images Downloaded\n{} - Posts Ignored'.format(count, num - count))
+            print('\nDownload Complete\n{} - Images Downloaded\n{} - Posts Not found, or ignored'.format(count,
+                                                                                                         query_lookup_limit - count))
         elif status == 0:
             print('\nDownload Incomplete\n{} - Images Downloaded'.format(count))
-
     delete_img_list()
