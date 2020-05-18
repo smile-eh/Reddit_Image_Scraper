@@ -3,6 +3,7 @@ import configparser
 import urllib.request
 import re
 import os
+import hashlib
 from time import sleep
 
 from prawcore.exceptions import Redirect
@@ -15,8 +16,8 @@ from urllib.error import HTTPError
 # Scrapes all subreddits defined in subs.txt for (default) 20k max queries each.
 # reminder, this is not meant to be a fast operation. Each download takes 2 sec to avoid rate limiting / premature D/C.
 # Set it and forget it overnight.
-#todo logging in each folder
-#todo restrict file size so no error messages are downloaded
+# todo logging in each folder
+# todo restrict file size so no error messages are downloaded
 
 class ClientInfo:
     id = ''
@@ -37,7 +38,7 @@ def get_client_info():
     query_limit = config["ALPHA"]["query_limit"]
     ratelimit_sleep = config["ALPHA"]["ratelimit_sleep"]
     failure_sleep = config["ALPHA"]["failure_sleep"]
-    minimum_file_size_kb = config["ALPHA"]["minimum_file_size_kb"] # not implemented yet
+    minimum_file_size_kb = config["ALPHA"]["minimum_file_size_kb"]  # not implemented yet
 
     return id, secret, int(query_limit), int(ratelimit_sleep), int(failure_sleep), int(minimum_file_size_kb * 1024)
 
@@ -56,6 +57,7 @@ def clean_sub_files(sub):
     :return:
     """
     if os.path.exists('result/{}'.format(sub)):
+        os.walk('result/{}'.format(sub))
         pass
 
 
@@ -75,17 +77,19 @@ def is_media_file(uri):
         return False
 
 
-def get_img_urls(sub, limit):
+def get_img_urls(sub, lim):
     try:
         r = praw.Reddit(client_id=ClientInfo.id, client_secret=ClientInfo.secret, user_agent=ClientInfo.user_agent)
-        submissions = r.subreddit(sub).top(time_filter='all', limit=limit)
-        return [submission.url for submission in submissions]
+        submissions1 = r.subreddit(sub).top(time_filter='all', limit=lim)
+        submissions2 = r.subreddit(sub).hot(limit=lim)
+        submissions3 = r.subreddit(sub).new(limit=lim)
+        return [submission.url for submission in list(submissions1) + list(submissions2) + list(submissions3)]
     except Redirect:
         print("get_img_urls() Redirect. Invalid Subreddit?")
         return 0
 
     except HTTPError:
-        print("get_img_urls() HTTPError in last query")
+        print("get_img_urls() HTTPError in last query".format(failure_sleep))
         sleep(10)
         return 0
 
@@ -101,22 +105,22 @@ def download_img(img_url, img_title, file_loc, sub, ratelimit_sleep: int, failur
     urllib.request.install_opener(opener)
     try:
         print('Subreddit: /r/{} Filename: {}\nFull URL: {}'.format(sub, img_title, img_url))
-        #u = urllib.request.urlopen(img_url)
-        #u_metadata = u.info()
-        #size = int(u_metadata.getheaders("Content-Length")[0])
-        #print(size)
+        # u = urllib.request.urlopen(img_url)
+        # u_metadata = u.info()
+        # size = int(u_metadata.getheaders("Content-Length")[0])
+        # print(size)
 
         urllib.request.urlretrieve(img_url, file_loc)
         sleep(ratelimit_sleep)  # this is necessary so you can download the whole sub
         return 1
 
     except HTTPError:
-        print("download_img() HTTPError in last query (file might not exist anymore, or malformed URL)")
+        print("download_img() HTTPError in last query {} sec wait".format(failure_sleep))
         sleep(failure_sleep)
         return 1
 
     except urllib.error.URLError:
-        print("download_img() URLError!")
+        print("download_img() URLError! {} sec wait for rate limiting".format(ratelimit_sleep))
         sleep(ratelimit_sleep)
         return 1
 
