@@ -86,7 +86,7 @@ def get_client_info():
             f.write("""[ALPHA]
 client_id=PASTE ID HERE
 client_secret=PASTE SECRET HERE
-query_limit=2000
+query_limit=1100
 ratelimit_sleep=2
 failure_sleep=10
 minimum_file_size_kb=12.0""")
