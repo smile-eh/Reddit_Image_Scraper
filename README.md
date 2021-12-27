@@ -1,9 +1,18 @@
 # Reddit Image Scraper
 
-Original: https://github.com/D3vd/Reddit_Image_Scraper
+## Description 
 
-A simple python script that downloads trending images from any subreddit. 
+Reliably scrapse multiple subreddits for multiple file formats. 
+
+## Original
+
+https://github.com/D3vd/Reddit_Image_Scraper
+
+
+## New Features
+
 This version well-supercedes the template created previously, with MANY new features. 
+
 * Auto-blacklisting low-quality images
 * Auto-blacklisting dead links
 * User-defined query timeout (how long will you wait between each query?)
