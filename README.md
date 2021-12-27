@@ -67,7 +67,9 @@ Runs once a day at 00:00 UTC.
 ```00 00 * * * cd /path/to/script/Reddit_Image_Scraper-master && python3 Reddit_image_scraper.py```
 
 
+# Gif Demo
 
+![](./howtoscrape.gif)
 
 
 
