@@ -200,7 +200,7 @@ def download_img(img_url, img_title, file_loc, sub, ratelimit_sleep: int, failur
     opener.addheaders = [('User-agent', 'Mozilla/5.0')]
     urllib.request.install_opener(opener)
     try:
-        log('Subreddit: /r/{} - Full URL: {}'.format(sub, img_title, img_url))
+        log('Subreddit: /r/{} - Full URL: {}'.format(sub, img_url))
         u = urllib.request.urlopen(img_url)
         u_metadata = u.info()
         # size = int(u_metadata.getheaders("Content-Length")[0])
