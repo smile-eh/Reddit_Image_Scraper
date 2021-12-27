@@ -4,6 +4,7 @@
 # reminder, this is not meant to be a fast operation. Each download takes 2 sec to avoid rate limiting / premature D/C.
 # Set it and forget it overnight.
 
+# install "praw" on pip
 import praw
 import configparser
 import urllib.request
@@ -20,11 +21,15 @@ from datetime import datetime
 
 now = datetime.now()
 dt_name = now.strftime("%d-%m-%Y-%H.%M.%S")
-logfile = open('./logs/{}.txt'.format(dt_name), 'w')
+
+if not os.path.exists('./logs'):
+    print('log directory created. Is this your first time running?')
+    os.mkdir('./logs')
 
 
 def log(text):
     print(text)
+    logfile = open('./logs/{}.txt'.format(dt_name), 'w')
     now = datetime.now()
     event_time = now.strftime("%d-%m-%Y-%H.%M.%S")
     logfile.write('{}: {}\n'.format(event_time, text))
@@ -51,6 +56,12 @@ def badlist_cleanup(minimum_file_size_kb):
                 print(str(fullpath) + " \t" + str(filesize) + "KB")
                 os.remove(fullpath)
 
+    # create badlist if it's not there
+    if not os.path.exists('badlist.txt'):
+        with open('badlist.txt', 'w') as f:
+            log('badlist.txt created. Is this your first time running?')
+            f.write('')
+
     # de-duplicate the badlist.
     with open('badlist.txt', 'r') as f:
         in_list = set(f.readlines())
@@ -59,13 +70,25 @@ def badlist_cleanup(minimum_file_size_kb):
     with open('badlist.txt', 'w') as f:
         f.writelines(in_list)
 
+
 def add_to_badlist(filename):
     with open('badlist.txt', 'a') as f:
         f.writelines(filename + '\n')
-        logfile.write("added {} to badlist".format(filename))
+        log("added {} to badlist".format(filename))
 
 
 def get_client_info():
+    s = os.path.exists('config.ini')
+    if not s:
+        with open('config.ini', 'w') as f:
+            log('config.ini template created. Please paste in your client secret. (And RTM)')
+            f.write("""[ALPHA]
+client_id=PASTE ID HERE
+client_secret=PASTE SECRET HERE
+query_limit=2000
+ratelimit_sleep=2
+failure_sleep=10
+minimum_file_size_kb=12.0""")
     config = configparser.ConfigParser()
     config.read("config.ini")
     id = config["ALPHA"]["client_id"]
@@ -75,6 +98,7 @@ def get_client_info():
     failure_sleep = config["ALPHA"]["failure_sleep"]
     minimum_file_size_kb = config["ALPHA"]["minimum_file_size_kb"]
     return id, secret, int(query_limit), int(ratelimit_sleep), int(failure_sleep), float(minimum_file_size_kb)
+
 
 def is_media_file(uri):
     # print('Original Link:' + img_link) # enable this if you want to log the literal URLs it sees
@@ -93,7 +117,7 @@ def is_media_file(uri):
 
 
 def get_img_urls(sub, limit):
-    # TODO how do I automate these generators? 
+    # TODO how do I automate these generators?
     time_filters = ['hour', 'month', 'all', 'week', 'year', 'day']
     try:
         all_start = time.time()
@@ -208,7 +232,11 @@ def download_img(img_url, img_title, file_loc, sub, ratelimit_sleep: int, failur
         return 1
 
 
-def read_img_links(sub,url_list):
+def read_img_links(sub, url_list):
+    if not os.path.exists('./result'):
+        os.mkdir('./result')
+    if not os.path.exists('./result/{}'.format(sub)):
+        os.mkdir('./result/{}'.format(sub))
 
     url_list = [x.strip() for x in url_list]
     url_list.sort()
@@ -232,8 +260,6 @@ def read_img_links(sub,url_list):
         if file_name in badlist:
             # print('{} found in badlist, skipping'.format(file_name))
             continue
-        if not os.path.exists('result/{}'.format(sub)):
-            os.mkdir('result/{}'.format(sub))
         file_loc = 'result/{}/{}'.format(sub, file_name)
         if os.path.exists(file_loc):
             # print(file_name + ' already exists')
@@ -256,6 +282,11 @@ if __name__ == '__main__':
     badlist_cleanup(minimum_file_size_kb)
 
     going = True
+    if not os.path.exists('./subs.txt'):
+        with open('./subs.txt', 'w') as f:
+            log('subs.txt created. You need to add subreddits to it now.')
+            f.write(
+                '# add your subs here. you can comment out subs like this line, as well, if you\'d prefer to not download some subs.')
     f = open('./subs.txt', 'r')
 
     for subreddit in f.readlines():
