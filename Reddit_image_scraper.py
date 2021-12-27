@@ -29,8 +29,9 @@ if not os.path.exists('./logs'):
 
 def log(text):
     print(text)
-    logfile = open('./logs/{}.txt'.format(dt_name), 'w')
     now = datetime.now()
+    dt_name = now.strftime("%d-%m-%Y-%H.%M.%S")
+    logfile = open('./logs/{}.txt'.format(dt_name), 'w')
     event_time = now.strftime("%d-%m-%Y-%H.%M.%S")
     logfile.write('{}: {}\n'.format(event_time, text))
 
@@ -121,6 +122,8 @@ def get_img_urls(sub, limit):
     time_filters = ['hour', 'month', 'all', 'week', 'year', 'day']
     try:
         all_start = time.time()
+        if ClientInfo.id == 'PASTE ID HERE' or ClientInfo.secret == 'PASTE SECRET HERE':
+            log('Error: Please enter your "Client Info" and "Secret" into config.ini')
         r = praw.Reddit(client_id=ClientInfo.id, client_secret=ClientInfo.secret, user_agent=ClientInfo.user_agent)
         start = time.time()
         submissions = [submission.url for submission in r.subreddit(sub).top(time_filter='all', limit=limit)]
@@ -320,3 +323,4 @@ if __name__ == '__main__':
 
                 log('OSError:{}\nVerbose:{}'.format(subreddit, e))
         # confirm = input('confirm next sub? CTRL+C to cancel.')
+
