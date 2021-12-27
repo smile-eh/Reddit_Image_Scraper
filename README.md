@@ -58,7 +58,13 @@ Write some warnings here soon for best practices.
 * Don't run more than one at a time. Your API key will get rate-limited and both may go even slower. 
 * DO NOT SHARE your API keys, or upload them anywhere public! Don't upload them to github, either! Treat them like a username/password.
 
+## Automating the script
 
+**Crontab** entry for you if you like: 
+
+Runs once a day at 00:00 UTC.  
+
+```00 00 * * * cd /path/to/script/Reddit_Image_Scraper-master && python3 Reddit_image_scraper.py```
 
 
 
