@@ -2,7 +2,7 @@
 
 ## Description 
 
-Reliably scrapse multiple subreddits for multiple file formats. 
+Reliably scrape multiple subreddits for multiple file formats. 
 
 ## Original
 
@@ -11,7 +11,7 @@ https://github.com/D3vd/Reddit_Image_Scraper
 
 ## New Features
 
-This version well-supercedes the template created previously, with MANY new features. 
+This version well-supersedes the template created previously, with MANY new features. 
 
 * Auto-blacklisting low-quality images
 * Auto-blacklisting dead links
