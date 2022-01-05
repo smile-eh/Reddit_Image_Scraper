@@ -20,6 +20,7 @@ from time import sleep
 from datetime import datetime
 
 now = datetime.now()
+logfile_date = now.strftime("%d-%m-%Y-%H.%M.%S")
 dt_name = now.strftime("%d-%m-%Y-%H.%M.%S")
 
 if not os.path.exists('./logs'):
@@ -30,8 +31,7 @@ if not os.path.exists('./logs'):
 def log(text):
     print(text)
     now = datetime.now()
-    dt_name = now.strftime("%d-%m-%Y-%H.%M.%S")
-    logfile = open('./logs/{}.txt'.format(dt_name), 'w')
+    logfile = open('./logs/{}.txt'.format(logfile_date), 'a')
     event_time = now.strftime("%d-%m-%Y-%H.%M.%S")
     logfile.write('{}: {}\n'.format(event_time, text))
 
@@ -86,7 +86,7 @@ def get_client_info():
             f.write("""[ALPHA]
 client_id=PASTE ID HERE
 client_secret=PASTE SECRET HERE
-query_limit=1100
+query_limit=2000
 ratelimit_sleep=2
 failure_sleep=10
 minimum_file_size_kb=12.0""")
@@ -200,7 +200,7 @@ def download_img(img_url, img_title, file_loc, sub, ratelimit_sleep: int, failur
     opener.addheaders = [('User-agent', 'Mozilla/5.0')]
     urllib.request.install_opener(opener)
     try:
-        log('Subreddit: /r/{} - Full URL: {}'.format(sub, img_url))
+        log('Subreddit: /r/{} - Full URL: {}'.format(sub, img_title, img_url))
         u = urllib.request.urlopen(img_url)
         u_metadata = u.info()
         # size = int(u_metadata.getheaders("Content-Length")[0])
@@ -323,4 +323,3 @@ if __name__ == '__main__':
 
                 log('OSError:{}\nVerbose:{}'.format(subreddit, e))
         # confirm = input('confirm next sub? CTRL+C to cancel.')
-
