@@ -1,6 +1,13 @@
 # Reddit Image Sync
-# 2021 Colin Burke
-# Scrapes all subreddits defined in subs.txt for (default) 20k max queries each.
+# 2021 - 2022 Colin Burke
+
+# scrapes Reddit for subs defined in subs.txt and users defined in users.txt for all possible images, videos, etc
+# downloads them, deduplicates, and badlists any duplicates.
+# separates users and subs by folder
+# creates a log file for each run
+# creates a badlist.txt file for any files that were removed from the download
+
+
 # reminder, this is not meant to be a fast operation. Each download takes 2 sec to avoid rate limiting / premature D/C.
 # Set it and forget it overnight.
 
@@ -10,6 +17,9 @@ import configparser
 import urllib.request
 import re
 import os
+import hashlib
+from blake3 import blake3
+import threading
 
 from prawcore.exceptions import Redirect
 from prawcore.exceptions import ResponseException
@@ -19,13 +29,124 @@ import time
 from time import sleep
 from datetime import datetime
 
+os.environ["PYTHONHASHSEED"] = "0"
+
 now = datetime.now()
 logfile_date = now.strftime("%d-%m-%Y-%H.%M.%S")
 dt_name = now.strftime("%d-%m-%Y-%H.%M.%S")
 
-if not os.path.exists('./logs'):
-    print('log directory created. Is this your first time running?')
-    os.mkdir('./logs')
+
+def create_directories():
+    if not os.path.exists('./users'):
+        print('users directory created. Is this your first time running?')
+        os.mkdir('./users/')
+
+    if not os.path.exists('./logs'):
+        print('log directory created. Is this your first time running?')
+        os.mkdir('./logs')
+
+    if not os.path.exists('./result'):
+        print('result directory created. Is this your first time running?')
+        os.mkdir('./result/')
+
+    if not os.path.exists('./subs.txt'):
+        with open('./subs.txt', 'w') as f:
+            log('subs.txt created. You need to add subreddits to it now.')
+            f.write(
+                '# add your subs here. you can comment out subs like this line, as well, if you\'d prefer to not download some subs.')
+    if not os.path.exists('./users.txt'):
+        with open('./users.txt', 'w') as f:
+            log('users.txt created. You need to add redditors to it now.')
+            f.write(
+                '# add your redditors here. you can comment out redditors like this line, as well, if you\'d prefer to not download some subs.')
+
+
+def sort_text_file(file):
+    with open(file, 'r') as f:
+        lines = f.readlines()
+    lines.sort(key=lambda x: x.lower())
+    with open(file, 'w') as f:
+        f.writelines(lines)
+
+
+# not implemented yet
+def delete_duplicates_by_hash_multithreaded(directory):
+    threads = []
+    for root, subdirs, files in os.walk(directory):
+        for file in files:
+            fullpath = os.path.join(root, file)
+            if 'gitignore' in fullpath:
+                continue
+            t = threading.Thread(target=delete_duplicates_by_hash_thread, args=(fullpath,))
+            threads.append(t)
+            t.start()
+    for t in threads:
+        t.join()
+
+
+# not implemented yet
+def delete_duplicates_by_hash_thread(fullpath):
+    hasher = blake3()
+    next_file = open(fullpath, 'rb').read()
+    hasher.update(next_file)
+    next_digest = hasher.digest()
+    if next_digest in our_hashes:
+        os.remove(fullpath)
+        log('removed duplicate file: {}'.format(fullpath))
+        # extract just the filename from fullpath
+        filename = os.path.basename(fullpath)
+        add_to_badlist(filename)
+    else:
+        our_hashes.append(next_digest)
+
+
+# single-folder deduplication
+def delete_duplicates_by_hash(directory):
+    our_hashes = []
+    for root, subdirs, files in os.walk(directory):
+        for file in files:
+            fullpath = os.path.join(root, file)
+            hasher = blake3()
+            next_file = open(fullpath, 'rb').read()
+            hasher.update(next_file)
+            next_digest = hasher.digest()
+            if next_digest in our_hashes:
+                os.remove(fullpath)
+                log('removed duplicate file: {}'.format(fullpath))
+                # extract just the filename from fullpath
+                filename = os.path.basename(fullpath)
+                add_to_badlist(filename)
+            else:
+                our_hashes.append(next_digest)
+
+
+# Does two levels of directory traversal.
+def delete_duplicates_by_hash_2Deep(directory):
+    for root, subdirs, files in os.walk(directory):
+        dir_count = 0
+        subdirs = sorted(subdirs)
+        for subdir in subdirs:
+            log('checking subdir: {}: {}/{}'.format(subdir, dir_count, len(subdirs)))
+            our_hashes = []
+            for root, subdirs, files in os.walk(os.path.join(directory, subdir)):
+                dupe_count = 0
+                log('starting: {} dedupe'.format(subdir))
+                for file in sorted(files, reverse=True):
+                    hasher = blake3()
+                    next_file = open(os.path.join(directory, subdir, file), 'rb').read()
+                    hasher.update(next_file)
+                    next_digest = hasher.digest()
+                    if next_digest in our_hashes:
+                        os.remove(os.path.join(directory, subdir, file))
+                        log('removed duplicate file: {}'.format(os.path.join(directory, subdir, file)))
+                        add_to_badlist(os.path.join(file))
+                        dupe_count += 1
+                    else:
+                        our_hashes.append(next_digest)
+                log('finished folder: {}'.format(subdir))
+                log('duplicates removed: {}'.format(dupe_count))
+            dir_count += 1
+        return
 
 
 def log(text):
@@ -45,7 +166,7 @@ class ClientInfo:
 def badlist_cleanup(minimum_file_size_kb):
     """removes small files, cleans and de-dupes the badlist"""
 
-    # crawl all directories recursively, find files lower than 15kb, add them to the badlist, then delete them.
+    # crawl all directories recursively, find files lower than variable kb, add them to the badlist, then delete them.
     for root, subdirs, files in os.walk('./result'):
         for file in files:
             fullpath = os.path.join(root, file)
@@ -53,6 +174,8 @@ def badlist_cleanup(minimum_file_size_kb):
             if 'gitignore' in fullpath:
                 continue
             if filesize < minimum_file_size_kb:
+                # remove anything before " -" in file.
+                file = re.sub(r'^.* - ', '', file)
                 add_to_badlist(file)
                 print(str(fullpath) + " \t" + str(filesize) + "KB")
                 os.remove(fullpath)
@@ -79,8 +202,7 @@ def add_to_badlist(filename):
 
 
 def get_client_info():
-    s = os.path.exists('config.ini')
-    if not s:
+    if not os.path.exists('config.ini'):
         with open('config.ini', 'w') as f:
             log('config.ini template created. Please paste in your client secret. (And RTM)')
             f.write("""[ALPHA]
@@ -115,6 +237,53 @@ def is_media_file(uri):
         return True
     else:
         return False
+
+
+def get_redditor_urls(redditor, limit):
+    # TODO how do I automate these generators?
+    time_filters = ['hour', 'month', 'all', 'week', 'year', 'day']
+    try:
+        all_start = time.time()
+        if ClientInfo.id == 'PASTE ID HERE' or ClientInfo.secret == 'PASTE SECRET HERE':
+            log('Error: Please enter your "Client Info" and "Secret" into config.ini')
+        r = praw.Reddit(client_id=ClientInfo.id, client_secret=ClientInfo.secret, user_agent=ClientInfo.user_agent)
+
+        start = time.time()
+        submissions1 = [submission.url for submission in r.redditor(redditor).submissions.top("all")]
+        end = time.time()
+        log('Query return time for Top/All:{},\nTotal Found: {}'.format(str(end - start), len(submissions1)))
+
+        start = time.time()
+        submissions2 = [submission.url for submission in r.redditor(redditor).submissions.new()]
+        end = time.time()
+        log('Query return time for new:{},\nTotal Found: {}'.format(str(end - start), len(submissions2)))
+
+        start = time.time()
+        submissions3 = [submission.url for submission in r.redditor(redditor).submissions.controversial()]
+        end = time.time()
+        log('Query return time for controversial:{},\nTotal Found: {}'.format(str(end - start), len(submissions3)))
+
+        # combine them all, and de-duplicate them
+        submissions = submissions = list(set(submissions1 + submissions2 + submissions3))
+
+        log('total unique submissions: {}'.format(len(submissions)))
+
+        all_end = time.time()
+        log('Query return time for :{}: {}'.format(str(redditor), str(all_end - all_start)))
+        return submissions
+
+    except Redirect:
+        log("get_img_urls() Redirect. Invalid Subreddit?")
+        return 0
+
+    except HTTPError:
+        log("get_img_urls() HTTPError in last query")
+        sleep(10)
+        return 0
+
+    except ResponseException:
+        log("get_img_urls() ResponseException.")
+        return 0
 
 
 def get_img_urls(sub, limit):
@@ -200,9 +369,9 @@ def download_img(img_url, img_title, file_loc, sub, ratelimit_sleep: int, failur
     opener.addheaders = [('User-agent', 'Mozilla/5.0')]
     urllib.request.install_opener(opener)
     try:
-        log('Subreddit: /r/{} - Full URL: {}'.format(sub, img_title, img_url))
-        u = urllib.request.urlopen(img_url)
-        u_metadata = u.info()
+        log('DL From: {} - Filename: {} - URL:{}'.format(sub, file_loc, img_url))
+        # u = urllib.request.urlopen(img_url)
+        # u_metadata = u.info()
         # size = int(u_metadata.getheaders("Content-Length")[0])
         # print(size)
 
@@ -212,9 +381,7 @@ def download_img(img_url, img_title, file_loc, sub, ratelimit_sleep: int, failur
 
     except HTTPError as e:
         log("download_img() HTTPError in last query (file might not exist anymore, or malformed URL)")
-        with open('badlist.txt', 'a') as f:
-            f.writelines(img_title + '\n')
-            log("added to badlist")
+        add_to_badlist(img_title)
         log(e)
         sleep(failure_sleep)
         return 1
@@ -222,9 +389,7 @@ def download_img(img_url, img_title, file_loc, sub, ratelimit_sleep: int, failur
     except urllib.error.URLError as e:
         log("download_img() URLError! Site might be offline")
         log(e)
-        with open('badlist.txt', 'a') as f:
-            f.writelines(img_title + '\n')
-            log("added to badlist")
+        add_to_badlist(img_title)
         sleep(ratelimit_sleep)
         return 1
 
@@ -235,11 +400,16 @@ def download_img(img_url, img_title, file_loc, sub, ratelimit_sleep: int, failur
         return 1
 
 
-def read_img_links(sub, url_list):
-    if not os.path.exists('./result'):
-        os.mkdir('./result')
-    if not os.path.exists('./result/{}'.format(sub)):
-        os.mkdir('./result/{}'.format(sub))
+def read_img_links(submissions, url_list, user_submissions):
+    sub = submissions.lower()
+    if user_submissions:
+        if not os.path.exists('./users/{}'.format(sub)):
+            os.mkdir('./users/{}'.format(sub))
+    else:
+        if not os.path.exists('./result'):
+            os.mkdir('./result')
+        if not os.path.exists('./result/{}'.format(sub)):
+            os.mkdir('./result/{}'.format(sub))
 
     url_list = [x.strip() for x in url_list]
     url_list.sort()
@@ -261,11 +431,17 @@ def read_img_links(sub, url_list):
 
         file_name = link.split('/')[-1]
         if file_name in badlist:
-            # print('{} found in badlist, skipping'.format(file_name))
+            # log('{} found in badlist, skipping'.format(file_name))
             continue
-        file_loc = 'result/{}/{}'.format(sub, file_name)
-        if os.path.exists(file_loc):
-            # print(file_name + ' already exists')
+
+        if user_submissions:
+            file_loc = 'users/{}/{}'.format(sub, file_name)
+            base = './users/'
+        else:
+            file_loc = 'result/{}/{}'.format(sub, file_name)
+            base = './result/'
+        if os.path.exists(file_name) or os.path.exists(file_loc):
+            # log(file_name + ' already exists')
             exist_count += 1
             continue
 
@@ -280,22 +456,64 @@ def read_img_links(sub, url_list):
 
 
 if __name__ == '__main__':
+    # Get client info
     ClientInfo.id, ClientInfo.secret, query_lookup_limit, ratelimit_sleep, failure_sleep, minimum_file_size_kb = get_client_info()
-    # if exited unexpectedly, clean up the image list file.
+
+    # Create project directories
+    create_directories()
+
+    # Cleanup files to the badlist, and to size standards
     badlist_cleanup(minimum_file_size_kb)
 
-    going = True
-    if not os.path.exists('./subs.txt'):
-        with open('./subs.txt', 'w') as f:
-            log('subs.txt created. You need to add subreddits to it now.')
-            f.write(
-                '# add your subs here. you can comment out subs like this line, as well, if you\'d prefer to not download some subs.')
-    f = open('./subs.txt', 'r')
+    # Sort all our files.
+    sort_text_file('./subs.txt')
+    sort_text_file('./users.txt')
+    sort_text_file('./badlist.txt')
 
-    for subreddit in f.readlines():
+    # THIS TAKES A VERY VERY LONG TIME
+    # delete_duplicates_by_hash('./users')
+    # delete_duplicates_by_hash('./result')
+
+    subs_file = open('./subs.txt', 'r')
+    redditors_file = open('./users.txt', 'r')
+
+    for redditor in redditors_file.readlines():
+        if '#' in redditor:
+            continue
+        redditor = redditor.strip('\n').lower()
+        log('Starting Retrieval from: ' + redditor)
+
+        # subreddit = input('Enter Subreddit: ')
+        # query_lookup_limit = int(input('Enter the max amount of queries: '))
+        url_list = []
+        url_list = get_redditor_urls(redditor, query_lookup_limit)
+        file_no = 1
+
+        if url_list:
+            try:
+                log('{} images found on {}'.format(len(url_list), redditor))
+                count, status, already_here = read_img_links(redditor, url_list, True)
+
+                if status == 1:
+                    log(
+                        'Download Complete from {}\n{} - Images Downloaded\nQuery limit: {} \nAlready downloaded: {} \n'.format(
+                            redditor, count, query_lookup_limit, already_here))
+                elif status == 0:
+                    log(
+                        'Download Complete from {}\n{} - Images Downloaded\nQuery limit: {} \nAlready downloaded: {} \n'.format(
+                            redditor, count, query_lookup_limit, already_here))
+            except UnicodeEncodeError:
+                log('UnicodeEncodeError:{}\n'.format(redditor))
+            except OSError as e:
+
+                log('OSError:{}\nVerbose:{}'.format(redditor, e))
+        # confirm = input('confirm next sub? CTRL+C to cancel.')
+        delete_duplicates_by_hash('./users/{}'.format(redditor))
+
+    for subreddit in subs_file.readlines():
         if '#' in subreddit:
             continue
-        subreddit = subreddit.strip('\n')
+        subreddit = subreddit.strip('\n').lower()
         log('Starting Retrieval from: /r/' + subreddit)
 
         # subreddit = input('Enter Subreddit: ')
@@ -307,7 +525,7 @@ if __name__ == '__main__':
         if url_list:
             try:
                 log('{} images found on {}'.format(len(url_list), subreddit))
-                count, status, already_here = read_img_links(subreddit, url_list)
+                count, status, already_here = read_img_links(subreddit, url_list, 0)
 
                 if status == 1:
                     log(
@@ -323,3 +541,4 @@ if __name__ == '__main__':
 
                 log('OSError:{}\nVerbose:{}'.format(subreddit, e))
         # confirm = input('confirm next sub? CTRL+C to cancel.')
+        delete_duplicates_by_hash('./result/{}'.format(subreddit))
