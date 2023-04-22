@@ -2,7 +2,7 @@
 
 ## Description 
 
-Reliably scrape multiple subreddits for multiple file formats. 
+Reliably scrape multiple subreddits and users for multiple file formats. 
 
 ## Original
 
@@ -33,6 +33,7 @@ Make sure to have installed these libraries before executing the program.
 * [PRAW](https://pypi.org/project/praw/)
 * [ConfigParser](https://pypi.org/project/configparser/)
 * [Urllib](https://docs.python.org/3.0/library/urllib.request.html)
+* Blake3
 
 ## First time running
 
