@@ -1,5 +1,5 @@
 # Reddit Image Sync
-# 2021 - 2022 Colin Burke
+# https://github.com/crawsome/
 
 # scrapes Reddit for subs defined in subs.txt and users defined in users.txt for all possible images, videos, etc
 # downloads them, deduplicates, and badlists any duplicates.
